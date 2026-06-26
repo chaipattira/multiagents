@@ -11,7 +11,7 @@ _PAYOFF_BLOCK = (
 )
 
 
-def build_stripped_prompt(game: dict, window_n: int, n_rounds: int = 100) -> str:
+def build_prompt(game: dict, window_n: int, n_rounds: int = 100) -> str:
     n_played = len(game["llm_actions"])
     current_round = n_played + 1
 

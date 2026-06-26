@@ -4,7 +4,7 @@ import torch as t
 from transformer_lens import HookedTransformer
 from transformer_lens import utilities as utils
 
-from .ipd_prompts import build_stripped_prompt
+from .ipd_prompts import build_prompt
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -12,16 +12,6 @@ from .ipd_prompts import build_stripped_prompt
 
 MODEL_ID       = "google/gemma-2-2b-it"
 OPP_ACTION_POS = 101  # token position of opponent's action in the 1-round contrast pair
-
-MPL_RC: dict = {
-    "font.size":        13,
-    "axes.titlesize":   15,
-    "axes.labelsize":   14,
-    "xtick.labelsize":  12,
-    "ytick.labelsize":  12,
-    "legend.fontsize":  12,
-    "figure.titlesize": 15,
-}
 
 _ACTION_PREFIX = "<start_of_turn>model\nAction: \n"
 
@@ -81,8 +71,8 @@ def make_contrast_pair(model: HookedTransformer) -> dict:
     tok_c, tok_d   = get_decision_tokens(model)
     _clean_game    = {"llm_actions": ["C"], "opp_actions": ["C"], "llm_scores": [], "opp_scores": []}
     _corrupt_game  = {"llm_actions": ["C"], "opp_actions": ["D"], "llm_scores": [], "opp_scores": []}
-    clean_prompt   = build_stripped_prompt(_clean_game, window_n=1)
-    corrupt_prompt = build_stripped_prompt(_corrupt_game, window_n=1)
+    clean_prompt   = build_prompt(_clean_game, window_n=1)
+    corrupt_prompt = build_prompt(_corrupt_game, window_n=1)
     clean_tokens   = model.to_tokens(clean_prompt)
     corrupt_tokens = model.to_tokens(corrupt_prompt)
 
@@ -103,14 +93,6 @@ def make_contrast_pair(model: HookedTransformer) -> dict:
         opp_action_pos = pos,
         seq_len        = clean_tokens.shape[1],
     )
-
-# ---------------------------------------------------------------------------
-# Metrics
-# ---------------------------------------------------------------------------
-
-def logit_diff(logits: t.Tensor, tok_d: int, tok_c: int) -> float:
-    """logit(D) − logit(C) at the final token position."""
-    return (logits[0, -1, tok_d] - logits[0, -1, tok_c]).float().item()
 
 # ---------------------------------------------------------------------------
 # DLA
