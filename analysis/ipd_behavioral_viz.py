@@ -40,11 +40,11 @@ WIN_MARKERS = {2: "o",       4: "s",       8: "^"}
 
 # Ocean Dusk palette — one colour per opponent (matches ipd_logits_viz.py OCEAN)
 OPP_COLORS = {
-    "ALLC":   "#264653",
-    "ALLD":   "#E76F51",
-    "TFT":    "#2A9D8F",
-    "TF2T":   "#E9C46A",
-    "RANDOM": "#F4A261",
+    "ALLC":   "#264653",   # deep teal
+    "ALLD":   "#E76F51",   # burnt coral
+    "TFT":    "#2A9D8F",   # teal
+    "TF2T":   "#9B59B6",   # purple (replaces yellow — visible on white)
+    "RANDOM": "#F4A261",   # sandy orange
 }
 OPP_MARKERS = {
     "ALLC":   "o",
@@ -66,11 +66,27 @@ OPPONENTS   = ["ALLC", "ALLD", "TFT", "TF2T", "RANDOM"]
 WINDOWS     = [2, 4, 8]
 
 OPP_LABELS = {
+    "ALLC":   "Always Cooperate (ALLC)",
+    "ALLD":   "Always Defect (ALLD)",
+    "TFT":    "Tit-for-Tat (TFT)",
+    "TF2T":   "Tit-for-Two-Tats (TF2T)",
+    "RANDOM": "Random 50/50",
+}
+
+OPP_LABELS_SHORT = {
     "ALLC":   "Always Cooperate",
     "ALLD":   "Always Defect",
     "TFT":    "Tit-for-Tat",
     "TF2T":   "Tit-for-Two-Tats",
-    "RANDOM": "Random (50/50)",
+    "RANDOM": "Random 50/50",
+}
+
+OPP_LINESTYLES = {
+    "ALLC":   "-",
+    "ALLD":   "-",
+    "TFT":    "-",
+    "TF2T":   "-",
+    "RANDOM": "-",
 }
 
 # ---------------------------------------------------------------------------
@@ -159,18 +175,14 @@ def plot_coop_by_opponent(data: dict) -> None:
 
             ax.plot(rounds, mu, color=color, lw=1.6,
                     marker=marker, markevery=every,
-                    markersize=3.5, label=f"$w={w}$  (n={n_runs})", zorder=3)
+                    markersize=3.5, label=f"$w={w}$", zorder=3)
             ax.fill_between(rounds, lo, hi, color=color, alpha=0.15, zorder=2)
 
         ax.axhline(0.5, color="#888", lw=0.9, ls="--", alpha=0.7, zorder=1)
         ax.set_ylim(-0.05, 1.05)
         ax.yaxis.set_major_locator(ticker.MultipleLocator(0.25))
         ax.tick_params(labelsize=9)
-        ax.text(0.01, 0.97, OPP_LABELS[opp],
-                transform=ax.transAxes, va="top", ha="left",
-                fontsize=10, fontweight="bold", zorder=5,
-                bbox=dict(facecolor="white", alpha=0.85, edgecolor="none",
-                          boxstyle="round,pad=0.25"))
+        ax.set_title(OPP_LABELS[opp], loc="left", pad=4, fontsize=10.5)
 
     axes[0].legend(title="History window", loc="upper right",
                    handlelength=2.0, ncol=len(WINDOWS))
@@ -178,7 +190,7 @@ def plot_coop_by_opponent(data: dict) -> None:
     fig.text(0.03, 0.5, "$P$(Cooperate)", va="center",
              rotation="vertical", fontsize=10)
     fig.suptitle(
-        "Gemma-2-2b-it · IPD Cooperation Rate  (T=0.7, 30 runs, 95% CI)",
+        "Gemma-2-2b-it IPD Cooperation Rate (n=30, T=0.7, 95% CI)",
         fontsize=12, fontweight="bold", y=1.01,
     )
     plt.tight_layout(rect=[0.05, 0, 1, 1])
@@ -191,10 +203,19 @@ def plot_coop_by_opponent(data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _rolling(arr: np.ndarray, win: int) -> np.ndarray:
+    """Apply a centred rolling mean to a 1-D array, preserving edges."""
+    kernel = np.ones(win) / win
+    padded = np.pad(arr, win // 2, mode="edge")
+    return np.convolve(padded, kernel, mode="valid")[: len(arr)]
+
+
 def plot_coop_by_window(data: dict) -> None:
     """
     3 side-by-side subplots (one per window).
-    5 lines per subplot (one per opponent) with 95% CI ribbons.
+    5 lines per subplot (one per opponent), smoothed with a rolling mean.
+    CI bands omitted to reduce clutter; each opponent uses both colour + linestyle.
+    Shared legend below panels.
     """
     avail_windows = [w for w in WINDOWS if any(w in data[o] for o in OPPONENTS)]
     n_win = len(avail_windows)
@@ -202,14 +223,17 @@ def plot_coop_by_window(data: dict) -> None:
         print("No data available for per-window plot.")
         return
 
+    SMOOTH = 9  # rounds rolling-mean window
+
     fig, axes = plt.subplots(
-        1, n_win,
-        figsize=(FIG_FULL, 3.2),
-        sharey=True,
+        n_win, 1,
+        figsize=(FIG_FULL, 3.2 * n_win),
+        sharex=True, sharey=True,
     )
     if n_win == 1:
         axes = [axes]
 
+    legend_handles = []
     for ax, w in zip(axes, avail_windows):
         for opp in OPPONENTS:
             if w not in data[opp]:
@@ -219,27 +243,33 @@ def plot_coop_by_window(data: dict) -> None:
             rounds    = np.arange(1, n_rounds + 1)
             mu, lo, hi = mean_ci95(coop)
             color     = OPP_COLORS[opp]
-            marker    = OPP_MARKERS[opp]
-            every     = max(1, n_rounds // 10)
+            ls        = OPP_LINESTYLES[opp]
 
-            ax.plot(rounds, mu, color=color, lw=1.4,
-                    marker=marker, markevery=every,
-                    markersize=3.0, label=OPP_LABELS[opp], zorder=3)
-            ax.fill_between(rounds, lo, hi, color=color, alpha=0.12, zorder=2)
+            line, = ax.plot(rounds, mu, color=color, lw=1.9,
+                            linestyle=ls, label=OPP_LABELS_SHORT[opp], zorder=3)
+            ax.fill_between(rounds, lo, hi, color=color, alpha=0.10, zorder=2)
+            if ax is axes[0]:
+                legend_handles.append(line)
 
         ax.axhline(0.5, color="#888", lw=0.8, ls="--", alpha=0.6, zorder=1)
-        ax.set_title(f"$w={w}$")
+        ax.set_ylabel(f"$w = {w}$\n$P$(Coop.)", fontsize=10)
         ax.set_ylim(-0.05, 1.05)
         ax.yaxis.set_major_locator(ticker.MultipleLocator(0.25))
         ax.tick_params(labelsize=9)
-        ax.set_xlabel("Round")
 
-    axes[0].set_ylabel("$P$(Cooperate)")
-    axes[0].legend(loc="lower left", fontsize=7.5, handlelength=1.5,
-                   borderaxespad=0.4)
+    axes[-1].set_xlabel("Round")
+
+    axes[0].legend(
+        handles=legend_handles,
+        loc="upper right",
+        ncol=1,
+        fontsize=8.5,
+        handlelength=2.2,
+        frameon=False,
+    )
     fig.suptitle(
-        "Cooperation Rate by History Window  (opponents overlaid)",
-        fontsize=11, fontweight="bold", y=1.03,
+        "Cooperation Rate by History Window — Gemma-2-2b-it (n=30, T=0.7)",
+        fontsize=11, fontweight="bold",
     )
     plt.tight_layout()
     _save(fig, "coop_rate_by_window")
